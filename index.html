@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Gestão de Visitas a Escolas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<style>
+  :root{
+    --chalk-dark:#24423B;
+    --chalk-darker:#172C27;
+    --paper:#F1EEE3;
+    --paper-raised:#FBFAF4;
+    --ink:#20241F;
+    --ink-soft:#5B6158;
+    --ochre:#B5811F;
+    --ochre-deep:#8F6316;
+    --green:#3F8F5F;
+    --green-bg:#E4F1E8;
+    --yellow:#B9871E;
+    --yellow-bg:#FBF0DA;
+    --red:#B3453B;
+    --red-bg:#F7E4E1;
+    --grey:#8A8F86;
+    --grey-bg:#EAE8DF;
+    --line:#D8D2BF;
+    --radius:6px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    font-family:'Inter',sans-serif;
+    background:var(--paper);
+    color:var(--ink);
+    -webkit-font-smoothing:antialiased;
+  }
+  h1,h2,h3,h4{font-family:'Fraunces',serif;font-weight:600;margin:0;}
+  button{font-family:'Inter',sans-serif;cursor:pointer;}
+  input,select,textarea{font-family:'Inter',sans-serif;}
+  a{color:inherit;}
+
+  /* ---------- App shell ---------- */
+  #app{display:none;min-height:100vh;}
+  .shell{display:flex;min-height:100vh;}
+  .sidebar{
+    width:230px;flex-shrink:0;background:var(--chalk-dark);color:#EFEFE7;
+    display:flex;flex-direction:column;padding:22px 0;
+  }
+  .brand{padding:0 22px 20px 22px;border-bottom:1px solid rgba(255,255,255,.12);margin-bottom:14px;}
+  .brand h1{font-size:19px;color:#fff;line-height:1.25;}
+  .brand span{display:block;font-size:12px;color:#B9C6BF;margin-top:4px;font-family:'Inter',sans-serif;}
+  .navitem{
+    padding:11px 22px;font-size:14.5px;color:#D7DED8;cursor:pointer;
+    border-left:3px solid transparent;display:flex;align-items:center;gap:10px;
+  }
+  .navitem:hover{background:rgba(255,255,255,.06);}
+  .navitem.active{background:rgba(255,255,255,.09);border-left-color:var(--ochre);color:#fff;font-weight:600;}
+  .navitem svg{width:16px;height:16px;flex-shrink:0;}
+  .sidebar-foot{margin-top:auto;padding:14px 22px 0 22px;border-top:1px solid rgba(255,255,255,.12);}
+  .sidebar-foot .user-email{font-size:12px;color:#B9C6BF;word-break:break-all;margin-bottom:8px;}
+  .link-btn{background:none;border:none;color:#D7DED8;font-size:13px;padding:0;text-decoration:underline;}
+
+  .content{flex:1;padding:30px 38px;max-width:1200px;}
+  .content-header{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:22px;flex-wrap:wrap;gap:12px;}
+  .content-header h2{font-size:26px;}
+  .content-header p{margin:4px 0 0 0;color:var(--ink-soft);font-size:14px;}
+
+  .btn{
+    background:var(--chalk-dark);color:#fff;border:none;padding:9px 16px;
+    border-radius:var(--radius);font-size:13.5px;font-weight:600;
+  }
+  .btn:hover{background:var(--chalk-darker);}
+  .btn.ochre{background:var(--ochre);}
+  .btn.ochre:hover{background:var(--ochre-deep);}
+  .btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--line);}
+  .btn.ghost:hover{background:var(--paper-raised);}
+  .btn.danger{background:transparent;color:var(--red);border:1px solid var(--red);}
+  .btn.danger:hover{background:var(--red-bg);}
+  .btn.small{padding:6px 11px;font-size:12.5px;}
+  .btn[disabled]{opacity:.5;cursor:not-allowed;}
+
+  /* ---------- Status dot / badge ---------- */
+  .dot{width:10px;height:10px;border-radius:50%;display:inline-block;flex-shrink:0;}
+  .dot.green{background:var(--green);}
+  .dot.yellow{background:var(--yellow);}
+  .dot.red{background:var(--red);}
+  .dot.grey{background:var(--grey);}
+  .badge{
+    font-size:12px;font-weight:600;padding:3px 9px;border-radius:20px;display:inline-flex;
+    align-items:center;gap:6px;
+  }
+  .badge.green{background:var(--green-bg);color:var(--green);}
+  .badge.yellow{background:var(--yellow-bg);color:var(--yellow);}
+  .badge.red{background:var(--red-bg);color:var(--red);}
+  .badge.grey{background:var(--grey-bg);color:var(--grey);}
+
+  /* ---------- Cards / tables ---------- */
+  .toolbar{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center;}
+  .search{
+    flex:1;min-width:180px;padding:9px 12px;border:1px solid var(--line);border-radius:var(--radius);
+    background:var(--paper-raised);font-size:13.5px;
+  }
+  select.filter{padding:9px 10px;border:1px solid var(--line);border-radius:var(--radius);background:var(--paper-raised);font-size:13.5px;}
+
+  .card-list{display:flex;flex-direction:column;gap:10px;}
+  .card{
+    background:var(--paper-raised);border:1px solid var(--line);border-radius:var(--radius);
+    padding:14px 16px;display:flex;align-items:center;gap:14px;cursor:pointer;
+  }
+  .card:hover{border-color:var(--ochre);}
+  .card .cinfo{flex:1;min-width:0;}
+  .card .cinfo h3{font-size:15.5px;font-weight:600;font-family:'Inter',sans-serif;margin-bottom:2px;}
+  .card .cinfo .meta{font-size:12.5px;color:var(--ink-soft);}
+  .card .cright{text-align:right;font-size:12px;color:var(--ink-soft);flex-shrink:0;}
+
+  .empty{padding:40px 20px;text-align:center;color:var(--ink-soft);border:1px dashed var(--line);border-radius:var(--radius);}
+  .empty h3{font-family:'Inter',sans-serif;font-size:15px;color:var(--ink);margin-bottom:6px;}
+
+  #map{height:360px;border-radius:var(--radius);border:1px solid var(--line);margin-bottom:24px;}
+
+  /* ---------- Forms / modal ---------- */
+  .overlay{
+    display:none;position:fixed;inset:0;background:rgba(23,44,39,.45);z-index:50;
+    align-items:flex-start;justify-content:center;padding:40px 20px;overflow-y:auto;
+  }
+  .modal{
+    background:var(--paper-raised);border-radius:8px;max-width:560px;width:100%;
+    padding:26px 28px 24px 28px;box-shadow:0 12px 40px rgba(0,0,0,.18);
+  }
+  .modal h3{font-size:19px;margin-bottom:18px;}
+  .field{margin-bottom:13px;}
+  .field label{display:block;font-size:12.5px;font-weight:600;color:var(--ink-soft);margin-bottom:5px;}
+  .field input,.field select,.field textarea{
+    width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:var(--radius);
+    font-size:13.5px;background:#fff;color:var(--ink);
+  }
+  .field textarea{resize:vertical;min-height:64px;}
+  .field-row{display:flex;gap:12px;}
+  .field-row > .field{flex:1;}
+  .modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:18px;}
+  .err{color:var(--red);font-size:13px;margin-top:8px;}
+  .hint{font-size:12px;color:var(--ink-soft);margin-top:4px;}
+
+  /* ---------- Detail panel ---------- */
+  .detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:22px;}
+  .info-block{background:var(--paper-raised);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;}
+  .info-block .label{font-size:11.5px;text-transform:uppercase;letter-spacing:.03em;color:var(--ink-soft);margin-bottom:3px;}
+  .info-block .value{font-size:14.5px;font-weight:500;}
+  .section-title{font-size:16px;margin:26px 0 12px 0;display:flex;align-items:center;justify-content:space-between;}
+
+  .visit-item{border-left:3px solid var(--line);padding:10px 0 10px 14px;margin-bottom:4px;}
+  .visit-item .vtop{display:flex;justify-content:space-between;font-size:13.5px;font-weight:600;}
+  .visit-item .vmeta{font-size:12.5px;color:var(--ink-soft);margin-top:2px;}
+  .visit-item .vbody{font-size:13.5px;margin-top:6px;line-height:1.5;}
+  .visit-item .vactions{margin-top:8px;display:flex;gap:8px;}
+
+  .back-link{font-size:13px;color:var(--ink-soft);margin-bottom:14px;display:inline-flex;align-items:center;gap:6px;cursor:pointer;}
+  .back-link:hover{color:var(--ink);}
+
+  /* ---------- Login / config ---------- */
+  .center-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--chalk-dark);padding:20px;}
+  .auth-card{background:var(--paper-raised);border-radius:10px;padding:38px 34px;max-width:400px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3);}
+  .auth-card h1{font-size:23px;margin-bottom:4px;}
+  .auth-card .sub{color:var(--ink-soft);font-size:13.5px;margin-bottom:22px;}
+  .auth-card .field{margin-bottom:14px;}
+  .auth-card .btn{width:100%;padding:11px;font-size:14px;margin-top:6px;}
+  .switch-mode{text-align:center;font-size:13px;margin-top:16px;color:var(--ink-soft);}
+  .switch-mode a{color:var(--ochre-deep);font-weight:600;cursor:pointer;text-decoration:underline;}
+
+  .config-box{max-width:560px;}
+  .config-box textarea{width:100%;min-height:150px;font-family:monospace;font-size:12.5px;padding:12px;border:1px solid var(--line);border-radius:var(--radius);}
+
+  @media(max-width:780px){
+    .shell{flex-direction:column;}
+    .sidebar{width:100%;flex-direction:row;overflow-x:auto;padding:12px;align-items:center;}
+    .brand{display:none;}
+    .navitem{border-left:none;border-bottom:3px solid transparent;white-space:nowrap;padding:8px 12px;}
+    .navitem.active{border-left:none;border-bottom-color:var(--ochre);}
+    .sidebar-foot{display:none;}
+    .content{padding:20px;}
+    .detail-grid{grid-template-columns:1fr;}
+    .field-row{flex-direction:column;gap:0;}
+  }
+</style>
+</head>
+<body>
+
+<!-- ============ ECRÃ DE CONFIGURAÇÃO FIREBASE ============ -->
+<div id="configScreen" class="center-screen">
+  <div class="auth-card config-box">
+    <h1>Configurar Firebase</h1>
+    <p class="sub">Cole aqui o <code>firebaseConfig</code> do seu projeto Firebase (Consola Firebase → Definições do projeto → As suas apps). É guardado apenas neste dispositivo/navegador.</p>
+    <div class="field">
+      <label>Firebase config (objeto JavaScript ou JSON)</label>
+      <textarea id="firebaseConfigInput" placeholder='{ "apiKey": "...", "authDomain": "...", "projectId": "...", ... }'></textarea>
+    </div>
+    <div id="configErr" class="err" style="display:none;"></div>
+    <button class="btn ochre" style="width:100%;padding:11px;" onclick="saveFirebaseConfig()">Guardar e continuar</button>
+    <p class="hint">Certifique-se de que ativou <strong>Authentication</strong> (Email/Password) e <strong>Firestore Database</strong> nesse projeto.</p>
+  </div>
+</div>
+
+<!-- ============ LOGIN ============ -->
+<div id="loginScreen" class="center-screen" style="display:none;">
+  <div class="auth-card">
+    <h1>Visitas a Escolas</h1>
+    <p class="sub">Inicie sessão para aceder à plataforma.</p>
+    <div class="field">
+      <label>E-mail</label>
+      <input type="email" id="loginEmail" placeholder="nome@exemplo.pt">
+    </div>
+    <div class="field">
+      <label>Palavra-passe</label>
+      <input type="password" id="loginPassword" placeholder="••••••••">
+    </div>
+    <div id="loginErr" class="err" style="display:none;"></div>
+    <button class="btn ochre" onclick="doLogin()">Entrar</button>
+    <div class="switch-mode">Sem conta? <a onclick="toggleAuthMode()">Criar conta</a></div>
+    <div class="switch-mode"><a onclick="showConfigScreen()">Alterar configuração Firebase</a></div>
+  </div>
+</div>
+
+<!-- ============ APLICAÇÃO ============ -->
+<div id="app">
+<div class="shell">
+  <div class="sidebar">
+    <div class="brand">
+      <h1>Visitas a Escolas</h1>
+      <span>Gestão de acompanhamento escolar</span>
+    </div>
+    <div class="navitem active" data-view="escolas" onclick="switchView('escolas')">🏫 Escolas</div>
+    <div class="navitem" data-view="mapa" onclick="switchView('mapa')">🗺️ Mapa</div>
+    <div class="navitem" data-view="visita" onclick="switchView('visita')">📝 Nova visita</div>
+    <div class="navitem" data-view="visitadores" onclick="switchView('visitadores')">👤 Visitadores</div>
+    <div class="sidebar-foot">
+      <div class="user-email" id="userEmailLabel"></div>
+      <button class="link-btn" onclick="doLogout()">Terminar sessão</button>
+    </div>
+  </div>
+
+  <div class="content">
+
+    <!-- ---------- VIEW: ESCOLAS ---------- -->
+    <div id="view-escolas">
+      <div class="content-header">
+        <div>
+          <h2>Escolas</h2>
+          <p>Lista de escolas acompanhadas, com estado da última visita.</p>
+        </div>
+        <button class="btn ochre" onclick="openSchoolModal()">+ Nova escola</button>
+      </div>
+      <div class="toolbar">
+        <input class="search" id="schoolSearch" placeholder="Pesquisar por nome ou morada..." oninput="renderSchoolList()">
+        <select class="filter" id="schoolTypeFilter" onchange="renderSchoolList()">
+          <option value="">Todos os tipos</option>
+        </select>
+        <select class="filter" id="schoolStatusFilter" onchange="renderSchoolList()">
+          <option value="">Todos os estados</option>
+          <option value="green">🟢 Verde</option>
+          <option value="yellow">🟡 Amarelo</option>
+          <option value="red">🔴 Vermelho</option>
+        </select>
+      </div>
+      <div class="card-list" id="schoolList"></div>
+    </div>
+
+    <!-- ---------- VIEW: MAPA ---------- -->
+    <div id="view-mapa" style="display:none;">
+      <div class="content-header">
+        <div>
+          <h2>Mapa</h2>
+          <p>Localização das escolas, coloridas pelo estado da última visita.</p>
+        </div>
+      </div>
+      <div id="map"></div>
+    </div>
+
+    <!-- ---------- VIEW: DETALHE ESCOLA ---------- -->
+    <div id="view-detalhe" style="display:none;">
+      <div class="back-link" onclick="switchView('escolas')">← Voltar às escolas</div>
+      <div class="content-header">
+        <div>
+          <h2 id="detNome"></h2>
+          <p id="detTipo"></p>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <span id="detBadge"></span>
+          <button class="btn ghost small" onclick="openSchoolModal(currentSchoolId)">Editar</button>
+          <button class="btn danger small" onclick="deleteSchool(currentSchoolId)">Eliminar</button>
+        </div>
+      </div>
+      <div class="detail-grid">
+        <div class="info-block"><div class="label">Morada</div><div class="value" id="detMorada"></div></div>
+        <div class="info-block"><div class="label">Coordenadas GPS</div><div class="value" id="detGPS"></div></div>
+        <div class="info-block"><div class="label">Contacto geral</div><div class="value" id="detContacto"></div></div>
+        <div class="info-block"><div class="label">Diretor(a)</div><div class="value" id="detDiretor"></div></div>
+      </div>
+      <div class="section-title">
+        <span>Histórico de visitas</span>
+        <button class="btn ochre small" onclick="openVisitFormFor(currentSchoolId)">+ Registar visita</button>
+      </div>
+      <div id="visitHistory"></div>
+    </div>
+
+    <!-- ---------- VIEW: NOVA VISITA ---------- -->
+    <div id="view-visita" style="display:none;">
+      <div class="content-header">
+        <div>
+          <h2>Registar visita</h2>
+          <p>Preencha o relatório da visita a uma escola.</p>
+        </div>
+      </div>
+      <div class="info-block" style="max-width:640px;">
+        <div class="field">
+          <label>Escola</label>
+          <select id="visitEscola"></select>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>Data e hora da visita</label>
+            <input type="datetime-local" id="visitDataHora">
+          </div>
+          <div class="field">
+            <label>Visitador</label>
+            <select id="visitVisitador"></select>
+          </div>
+        </div>
+        <div class="field">
+          <label>Pessoa contactada (se não for o Diretor)</label>
+          <input type="text" id="visitPessoaContactada" placeholder="Nome / cargo">
+        </div>
+        <div class="field">
+          <label>Assunto(s) tratado(s)</label>
+          <textarea id="visitAssunto" placeholder="Temas abordados na visita"></textarea>
+        </div>
+        <div class="field">
+          <label>Ações a realizar / follow-up</label>
+          <textarea id="visitAcoes" placeholder="Próximos passos, compromissos assumidos..."></textarea>
+        </div>
+        <div class="field">
+          <label>Anexos / fotos (links ou nomes de ficheiro, um por linha)</label>
+          <textarea id="visitAnexos" placeholder="ex: foto_entrada.jpg, https://..."></textarea>
+        </div>
+        <div class="field">
+          <label>Observações</label>
+          <textarea id="visitObservacoes" placeholder="Observações gerais"></textarea>
+        </div>
+        <div id="visitErr" class="err" style="display:none;"></div>
+        <div class="modal-actions" style="justify-content:flex-start;">
+          <button class="btn ochre" onclick="submitVisit()">Guardar relatório de visita</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ---------- VIEW: VISITADORES ---------- -->
+    <div id="view-visitadores" style="display:none;">
+      <div class="content-header">
+        <div>
+          <h2>Visitadores</h2>
+          <p>Lista de pessoas responsáveis pelas visitas às escolas.</p>
+        </div>
+        <button class="btn ochre" onclick="openVisitorModal()">+ Novo visitador</button>
+      </div>
+      <div class="card-list" id="visitorList"></div>
+    </div>
+
+  </div>
+</div>
+</div>
+
+<!-- ============ MODAL: ESCOLA ============ -->
+<div class="overlay" id="schoolModalOverlay">
+  <div class="modal">
+    <h3 id="schoolModalTitle">Nova escola</h3>
+    <div class="field">
+      <label>Nome da escola</label>
+      <input type="text" id="fNome">
+    </div>
+    <div class="field">
+      <label>Tipo de escola</label>
+      <select id="fTipo">
+        <option value="JI">JI — Jardim de Infância</option>
+        <option value="EB">EB — Escola Básica</option>
+        <option value="EB2">EB2</option>
+        <option value="EB2,3">EB2,3</option>
+        <option value="EBS">EBS — Escola Básica e Secundária</option>
+        <option value="Escola Profissional">Escola Profissional</option>
+        <option value="Politécnico">Politécnico</option>
+        <option value="Universidade">Universidade</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Morada</label>
+      <input type="text" id="fMorada">
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label>Latitude</label>
+        <input type="text" id="fLat" placeholder="ex: 40.9223">
+      </div>
+      <div class="field">
+        <label>Longitude</label>
+        <input type="text" id="fLng" placeholder="ex: -8.4756">
+      </div>
+    </div>
+    <div class="field">
+      <label>Contacto geral</label>
+      <input type="text" id="fContacto">
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label>Nome do Diretor(a)</label>
+        <input type="text" id="fDiretorNome">
+      </div>
+      <div class="field">
+        <label>Contacto do Diretor(a)</label>
+        <input type="text" id="fDiretorContacto">
+      </div>
+    </div>
+    <div id="schoolErr" class="err" style="display:none;"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeSchoolModal()">Cancelar</button>
+      <button class="btn ochre" onclick="saveSchool()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ MODAL: VISITADOR ============ -->
+<div class="overlay" id="visitorModalOverlay">
+  <div class="modal">
+    <h3>Novo visitador</h3>
+    <div class="field">
+      <label>Nome</label>
+      <input type="text" id="vNome">
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label>Número mecanográfico</label>
+        <input type="text" id="vNumero">
+      </div>
+      <div class="field">
+        <label>Posto</label>
+        <input type="text" id="vPosto">
+      </div>
+    </div>
+    <div id="visitorErr" class="err" style="display:none;"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeVisitorModal()">Cancelar</button>
+      <button class="btn ochre" onclick="saveVisitor()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ MODAL: PARTILHAR RELATÓRIO ============ -->
+<div class="overlay" id="shareModalOverlay">
+  <div class="modal">
+    <h3>Partilhar relatório da visita</h3>
+    <div class="field">
+      <textarea id="shareText" style="min-height:220px;font-size:13px;" readonly></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeShareModal()">Fechar</button>
+      <button class="btn ghost" onclick="shareViaEmail()">Enviar por e-mail</button>
+      <button class="btn ochre" onclick="shareViaWhatsApp()">Enviar por WhatsApp</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* =========================================================
+   CONFIGURAÇÃO FIREBASE (guardada em localStorage do browser)
+   ========================================================= */
+let firebaseApp, auth, db;
+let currentUser = null;
+let schools = [], visitors = [], visits = [];
+let currentSchoolId = null;
+let editingSchoolId = null;
+let visitFormSchoolId = null;
+let authMode = 'login'; // 'login' | 'signup'
+let leafletMap = null, leafletMarkers = [];
+
+function getStoredConfig(){
+  try{
+    const raw = localStorage.getItem('escolas_firebaseConfig');
+    return raw ? JSON.parse(raw) : null;
+  }catch(e){ return null; }
+}
+
+function showConfigScreen(){
+  document.getElementById('configScreen').style.display = 'flex';
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('app').style.display = 'none';
+}
+
+function saveFirebaseConfig(){
+  const raw = document.getElementById('firebaseConfigInput').value.trim();
+  const errEl = document.getElementById('configErr');
+  errEl.style.display = 'none';
+  let parsed;
+  try{
+    // aceita tanto JSON válido como objeto JS (com aspas simples, chaves sem aspas, etc.)
+    parsed = Function('"use strict"; return (' + raw + ')')();
+  }catch(e){
+    errEl.textContent = 'Não foi possível interpretar o config. Cole exatamente o objeto firebaseConfig fornecido pela consola Firebase.';
+    errEl.style.display = 'block';
+    return;
+  }
+  if(!parsed || !parsed.apiKey || !parsed.projectId){
+    errEl.textContent = 'O config parece incompleto — falta apiKey ou projectId.';
+    errEl.style.display = 'block';
+    return;
+  }
+  localStorage.setItem('escolas_firebaseConfig', JSON.stringify(parsed));
+  initFirebase();
+}
+
+function initFirebase(){
+  const cfg = getStoredConfig();
+  if(!cfg){ showConfigScreen(); return; }
+  try{
+    firebaseApp = firebase.initializeApp(cfg);
+    auth = firebase.auth();
+    db = firebase.firestore();
+  }catch(e){
+    showConfigScreen();
+    document.getElementById('configErr').textContent = 'Erro a iniciar o Firebase: ' + e.message;
+    document.getElementById('configErr').style.display = 'block';
+    return;
+  }
+  document.getElementById('configScreen').style.display = 'none';
+  auth.onAuthStateChanged(user => {
+    if(user){
+      currentUser = user;
+      document.getElementById('loginScreen').style.display = 'none';
+      document.getElementById('app').style.display = 'block';
+      document.getElementById('userEmailLabel').textContent = user.email;
+      attachListeners();
+    } else {
+      currentUser = null;
+      document.getElementById('app').style.display = 'none';
+      document.getElementById('loginScreen').style.display = 'flex';
+    }
+  });
+}
+
+/* =========================================================
+   AUTENTICAÇÃO
+   ========================================================= */
+function toggleAuthMode(){
+  authMode = authMode === 'login' ? 'signup' : 'login';
+  const card = document.querySelector('#loginScreen .auth-card');
+  card.querySelector('h1').textContent = authMode === 'login' ? 'Visitas a Escolas' : 'Criar conta';
+  card.querySelector('.sub').textContent = authMode === 'login' ? 'Inicie sessão para aceder à plataforma.' : 'Crie uma conta para aceder à plataforma.';
+  card.querySelector('.btn').textContent = authMode === 'login' ? 'Entrar' : 'Criar conta';
+  card.querySelector('.switch-mode a').textContent = authMode === 'login' ? 'Criar conta' : 'Iniciar sessão';
+}
+
+function doLogin(){
+  const email = document.getElementById('loginEmail').value.trim();
+  const pass = document.getElementById('loginPassword').value;
+  const errEl = document.getElementById('loginErr');
+  errEl.style.display = 'none';
+  if(!email || !pass){ errEl.textContent = 'Preencha e-mail e palavra-passe.'; errEl.style.display='block'; return; }
+  const action = authMode === 'login'
+    ? auth.signInWithEmailAndPassword(email, pass)
+    : auth.createUserWithEmailAndPassword(email, pass);
+  action.catch(e => {
+    errEl.textContent = traduzErro(e.code) || e.message;
+    errEl.style.display = 'block';
+  });
+}
+
+function traduzErro(code){
+  const map = {
+    'auth/invalid-email':'E-mail inválido.',
+    'auth/user-not-found':'Utilizador não encontrado.',
+    'auth/wrong-password':'Palavra-passe incorreta.',
+    'auth/email-already-in-use':'Já existe uma conta com este e-mail.',
+    'auth/weak-password':'Palavra-passe demasiado curta (mín. 6 caracteres).',
+    'auth/invalid-credential':'Credenciais inválidas.'
+  };
+  return map[code];
+}
+
+function doLogout(){ auth.signOut(); }
+
+/* =========================================================
+   LISTENERS FIRESTORE
+   ========================================================= */
+function attachListeners(){
+  db.collection('schools').onSnapshot(snap => {
+    schools = snap.docs.map(d => ({id:d.id, ...d.data()}));
+    renderSchoolList();
+    renderSchoolSelect();
+    renderMap();
+    if(currentSchoolId) renderDetail(currentSchoolId);
+  });
+  db.collection('visitors').onSnapshot(snap => {
+    visitors = snap.docs.map(d => ({id:d.id, ...d.data()}));
+    renderVisitorList();
+    renderVisitorSelect();
+  });
+  db.collection('visits').orderBy('dataHora','desc').onSnapshot(snap => {
+    visits = snap.docs.map(d => ({id:d.id, ...d.data()}));
+    if(currentSchoolId) renderDetail(currentSchoolId);
+  });
+}
+
+/* =========================================================
+   NAVEGAÇÃO
+   ========================================================= */
+function switchView(view){
+  ['escolas','mapa','detalhe','visita','visitadores'].forEach(v=>{
+    document.getElementById('view-'+v).style.display = (v===view) ? 'block' : 'none';
+  });
+  document.querySelectorAll('.navitem').forEach(el=>{
+    el.classList.toggle('active', el.dataset.view === view);
+  });
+  if(view==='mapa') setTimeout(()=>{ if(leafletMap) leafletMap.invalidateSize(); }, 50);
+  if(view==='visita' && !visitFormSchoolId) resetVisitForm();
+}
+
+/* =========================================================
+   ESTADO / COR CONFORME ÚLTIMA VISITA
+   ========================================================= */
+function getStatus(school){
+  const lastVisit = getLastVisitDate(school.id);
+  if(!lastVisit) return {code:'grey', label:'Sem visitas registadas'};
+  const days = (Date.now() - lastVisit.getTime()) / (1000*60*60*24);
+  const weeks = days / 7;
+  if(weeks <= 2) return {code:'green', label:'Até 2 semanas'};
+  if(weeks <= 3) return {code:'yellow', label:'2 a 3 semanas'};
+  return {code:'red', label:'Mais de 3 semanas'};
+}
+
+function getLastVisitDate(schoolId){
+  const list = visits.filter(v => v.escolaId === schoolId);
+  if(list.length===0) return null;
+  const sorted = list.slice().sort((a,b)=> new Date(b.dataHora) - new Date(a.dataHora));
+  return new Date(sorted[0].dataHora);
+}
+
+function statusBadgeHTML(status){
+  return `<span class="badge ${status.code}"><span class="dot ${status.code}"></span>${status.label}</span>`;
+}
+
+/* =========================================================
+   VIEW: LISTA DE ESCOLAS
+   ========================================================= */
+const TIPOS = ['JI','EB','EB2','EB2,3','EBS','Escola Profissional','Politécnico','Universidade'];
+
+function populateTypeFilter(){
+  const sel = document.getElementById('schoolTypeFilter');
+  if(sel.options.length>1) return;
+  TIPOS.forEach(t=>{
+    const o = document.createElement('option'); o.value=t; o.textContent=t; sel.appendChild(o);
+  });
+}
+populateTypeFilter();
+
+function renderSchoolList(){
+  const list = document.getElementById('schoolList');
+  const term = document.getElementById('schoolSearch').value.toLowerCase();
+  const typeFilter = document.getElementById('schoolTypeFilter').value;
+  const statusFilter = document.getElementById('schoolStatusFilter').value;
+
+  let filtered = schools.filter(s=>{
+    const matchesTerm = !term || (s.nome||'').toLowerCase().includes(term) || (s.morada||'').toLowerCase().includes(term);
+    const matchesType = !typeFilter || s.tipo === typeFilter;
+    const status = getStatus(s);
+    const matchesStatus = !statusFilter || status.code === statusFilter;
+    return matchesTerm && matchesType && matchesStatus;
+  });
+
+  filtered.sort((a,b)=> (a.nome||'').localeCompare(b.nome||''));
+
+  if(filtered.length===0){
+    list.innerHTML = `<div class="empty"><h3>Nenhuma escola encontrada</h3>Ajuste os filtros ou adicione uma nova escola.</div>`;
+    return;
+  }
+
+  list.innerHTML = filtered.map(s=>{
+    const status = getStatus(s);
+    const last = getLastVisitDate(s.id);
+    return `<div class="card" onclick="switchView('detalhe'); renderDetail('${s.id}')">
+      <span class="dot ${status.code}"></span>
+      <div class="cinfo">
+        <h3>${escapeHTML(s.nome)}</h3>
+        <div class="meta">${escapeHTML(s.tipo)} · ${escapeHTML(s.morada||'sem morada')}</div>
+      </div>
+      <div class="cright">
+        ${statusBadgeHTML(status)}<br>
+        ${last ? 'Última visita: '+formatDate(last) : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function escapeHTML(str){
+  if(str===undefined || str===null) return '';
+  return String(str).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+function formatDate(d){
+  return d.toLocaleDateString('pt-PT') + ' ' + d.toLocaleTimeString('pt-PT',{hour:'2-digit',minute:'2-digit'});
+}
+
+/* =========================================================
+   VIEW: MAPA
+   ========================================================= */
+function renderMap(){
+  if(!document.getElementById('map')) return;
+  if(!leafletMap){
+    leafletMap = L.map('map').setView([39.5, -8.0], 7);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+      attribution:'&copy; OpenStreetMap contributors'
+    }).addTo(leafletMap);
+  }
+  leafletMarkers.forEach(m=>leafletMap.removeLayer(m));
+  leafletMarkers = [];
+
+  const colorHex = {green:'#3F8F5F', yellow:'#B9871E', red:'#B3453B', grey:'#8A8F86'};
+  const withCoords = schools.filter(s=> s.lat && s.lng);
+  withCoords.forEach(s=>{
+    const status = getStatus(s);
+    const marker = L.circleMarker([parseFloat(s.lat), parseFloat(s.lng)], {
+      radius:9, fillColor: colorHex[status.code], color:'#fff', weight:2, fillOpacity:0.95
+    }).addTo(leafletMap);
+    marker.bindPopup(`<strong>${escapeHTML(s.nome)}</strong><br>${escapeHTML(s.tipo)}<br>${status.label}`);
+    marker.on('click', ()=>{ switchView('detalhe'); renderDetail(s.id); });
+    leafletMarkers.push(marker);
+  });
+  if(withCoords.length>0){
+    const bounds = L.latLngBounds(withCoords.map(s=>[parseFloat(s.lat), parseFloat(s.lng)]));
+    leafletMap.fitBounds(bounds.pad(0.2));
+  }
+}
+
+/* =========================================================
+   VIEW: DETALHE DA ESCOLA
+   ========================================================= */
+function renderDetail(id){
+  currentSchoolId = id;
+  const s = schools.find(x=>x.id===id);
+  if(!s) return;
+  document.getElementById('detNome').textContent = s.nome;
+  document.getElementById('detTipo').textContent = s.tipo;
+  document.getElementById('detBadge').innerHTML = statusBadgeHTML(getStatus(s));
+  document.getElementById('detMorada').textContent = s.morada || '—';
+  document.getElementById('detGPS').textContent = (s.lat && s.lng) ? `${s.lat}, ${s.lng}` : '—';
+  document.getElementById('detContacto').textContent = s.contactoGeral || '—';
+  document.getElementById('detDiretor').textContent = (s.diretorNome||'—') + (s.diretorContacto ? ' · '+s.diretorContacto : '');
+
+  const list = visits.filter(v=>v.escolaId===id).slice().sort((a,b)=> new Date(b.dataHora)-new Date(a.dataHora));
+  const hist = document.getElementById('visitHistory');
+  if(list.length===0){
+    hist.innerHTML = `<div class="empty"><h3>Ainda sem visitas</h3>Registe a primeira visita a esta escola.</div>`;
+    return;
+  }
+  hist.innerHTML = list.map(v=>{
+    const visitador = visitors.find(x=>x.id===v.visitadorId);
+    return `<div class="visit-item">
+      <div class="vtop"><span>${formatDate(new Date(v.dataHora))}</span><span>${visitador ? escapeHTML(visitador.nome) : ''}</span></div>
+      <div class="vmeta">${v.pessoaContactada ? 'Contactado: '+escapeHTML(v.pessoaContactada) : ''}</div>
+      <div class="vbody">
+        ${v.assunto ? '<strong>Assunto:</strong> '+escapeHTML(v.assunto)+'<br>' : ''}
+        ${v.acoes ? '<strong>Ações / follow-up:</strong> '+escapeHTML(v.acoes)+'<br>' : ''}
+        ${v.anexos ? '<strong>Anexos:</strong> '+escapeHTML(v.anexos)+'<br>' : ''}
+        ${v.observacoes ? '<strong>Observações:</strong> '+escapeHTML(v.observacoes) : ''}
+      </div>
+      <div class="vactions">
+        <button class="btn ghost small" onclick="openShareModal('${v.id}')">Partilhar relatório</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/* =========================================================
+   MODAL: ESCOLA (criar/editar)
+   ========================================================= */
+function openSchoolModal(id){
+  editingSchoolId = id || null;
+  document.getElementById('schoolErr').style.display = 'none';
+  document.getElementById('schoolModalTitle').textContent = id ? 'Editar escola' : 'Nova escola';
+  if(id){
+    const s = schools.find(x=>x.id===id);
+    document.getElementById('fNome').value = s.nome || '';
+    document.getElementById('fTipo').value = s.tipo || 'EB';
+    document.getElementById('fMorada').value = s.morada || '';
+    document.getElementById('fLat').value = s.lat || '';
+    document.getElementById('fLng').value = s.lng || '';
+    document.getElementById('fContacto').value = s.contactoGeral || '';
+    document.getElementById('fDiretorNome').value = s.diretorNome || '';
+    document.getElementById('fDiretorContacto').value = s.diretorContacto || '';
+  } else {
+    ['fNome','fMorada','fLat','fLng','fContacto','fDiretorNome','fDiretorContacto'].forEach(id=>document.getElementById(id).value='');
+    document.getElementById('fTipo').value = 'EB';
+  }
+  document.getElementById('schoolModalOverlay').style.display = 'flex';
+}
+function closeSchoolModal(){ document.getElementById('schoolModalOverlay').style.display = 'none'; }
+
+function saveSchool(){
+  const nome = document.getElementById('fNome').value.trim();
+  const errEl = document.getElementById('schoolErr');
+  if(!nome){ errEl.textContent='O nome da escola é obrigatório.'; errEl.style.display='block'; return; }
+  const data = {
+    nome,
+    tipo: document.getElementById('fTipo').value,
+    morada: document.getElementById('fMorada').value.trim(),
+    lat: document.getElementById('fLat').value.trim(),
+    lng: document.getElementById('fLng').value.trim(),
+    contactoGeral: document.getElementById('fContacto').value.trim(),
+    diretorNome: document.getElementById('fDiretorNome').value.trim(),
+    diretorContacto: document.getElementById('fDiretorContacto').value.trim(),
+  };
+  const promise = editingSchoolId
+    ? db.collection('schools').doc(editingSchoolId).update(data)
+    : db.collection('schools').add({...data, createdAt: new Date().toISOString()});
+  promise.then(()=>{ closeSchoolModal(); }).catch(e=>{
+    errEl.textContent = 'Erro ao guardar: '+e.message; errEl.style.display='block';
+  });
+}
+
+function deleteSchool(id){
+  if(!confirm('Eliminar esta escola? Esta ação não pode ser revertida.')) return;
+  db.collection('schools').doc(id).delete().then(()=> switchView('escolas'));
+}
+
+/* =========================================================
+   VIEW: VISITADORES
+   ========================================================= */
+function renderVisitorList(){
+  const list = document.getElementById('visitorList');
+  if(visitors.length===0){
+    list.innerHTML = `<div class="empty"><h3>Ainda sem visitadores</h3>Adicione as pessoas responsáveis pelas visitas.</div>`;
+    return;
+  }
+  const sorted = visitors.slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
+  list.innerHTML = sorted.map(v=>`
+    <div class="card" style="cursor:default;">
+      <div class="cinfo">
+        <h3>${escapeHTML(v.nome)}</h3>
+        <div class="meta">Nº mecanográfico: ${escapeHTML(v.numero||'—')} · Posto: ${escapeHTML(v.posto||'—')}</div>
+      </div>
+      <button class="btn ghost small" onclick="deleteVisitor('${v.id}')">Eliminar</button>
+    </div>
+  `).join('');
+}
+
+function openVisitorModal(){
+  document.getElementById('visitorErr').style.display='none';
+  ['vNome','vNumero','vPosto'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('visitorModalOverlay').style.display = 'flex';
+}
+function closeVisitorModal(){ document.getElementById('visitorModalOverlay').style.display = 'none'; }
+function saveVisitor(){
+  const nome = document.getElementById('vNome').value.trim();
+  const errEl = document.getElementById('visitorErr');
+  if(!nome){ errEl.textContent='O nome é obrigatório.'; errEl.style.display='block'; return; }
+  db.collection('visitors').add({
+    nome,
+    numero: document.getElementById('vNumero').value.trim(),
+    posto: document.getElementById('vPosto').value.trim(),
+  }).then(()=> closeVisitorModal()).catch(e=>{
+    errEl.textContent='Erro ao guardar: '+e.message; errEl.style.display='block';
+  });
+}
+function deleteVisitor(id){
+  if(!confirm('Eliminar este visitador?')) return;
+  db.collection('visitors').doc(id).delete();
+}
+
+/* =========================================================
+   VIEW: NOVA VISITA
+   ========================================================= */
+function renderSchoolSelect(){
+  const sel = document.getElementById('visitEscola');
+  const current = sel.value;
+  sel.innerHTML = schools.slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||''))
+    .map(s=>`<option value="${s.id}">${escapeHTML(s.nome)}</option>`).join('');
+  if(visitFormSchoolId) sel.value = visitFormSchoolId;
+  else if(current) sel.value = current;
+}
+function renderVisitorSelect(){
+  const sel = document.getElementById('visitVisitador');
+  const current = sel.value;
+  sel.innerHTML = visitors.slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||''))
+    .map(v=>`<option value="${v.id}">${escapeHTML(v.nome)}</option>`).join('');
+  if(current) sel.value = current;
+}
+
+function openVisitFormFor(schoolId){
+  visitFormSchoolId = schoolId;
+  switchView('visita');
+  resetVisitForm();
+}
+
+function resetVisitForm(){
+  renderSchoolSelect();
+  renderVisitorSelect();
+  const now = new Date();
+  now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+  document.getElementById('visitDataHora').value = now.toISOString().slice(0,16);
+  ['visitPessoaContactada','visitAssunto','visitAcoes','visitAnexos','visitObservacoes'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('visitErr').style.display='none';
+}
+
+function submitVisit(){
+  const errEl = document.getElementById('visitErr');
+  const escolaId = document.getElementById('visitEscola').value;
+  const dataHoraRaw = document.getElementById('visitDataHora').value;
+  const visitadorId = document.getElementById('visitVisitador').value;
+  if(!escolaId){ errEl.textContent='Escolha uma escola.'; errEl.style.display='block'; return; }
+  if(!dataHoraRaw){ errEl.textContent='Indique a data e hora da visita.'; errEl.style.display='block'; return; }
+
+  const data = {
+    escolaId,
+    visitadorId: visitadorId || null,
+    dataHora: new Date(dataHoraRaw).toISOString(),
+    pessoaContactada: document.getElementById('visitPessoaContactada').value.trim(),
+    assunto: document.getElementById('visitAssunto').value.trim(),
+    acoes: document.getElementById('visitAcoes').value.trim(),
+    anexos: document.getElementById('visitAnexos').value.trim(),
+    observacoes: document.getElementById('visitObservacoes').value.trim(),
+    createdAt: new Date().toISOString(),
+  };
+
+  db.collection('visits').add(data).then(()=>{
+    visitFormSchoolId = null;
+    currentSchoolId = escolaId;
+    switchView('detalhe');
+    renderDetail(escolaId);
+  }).catch(e=>{
+    errEl.textContent = 'Erro ao guardar: '+e.message; errEl.style.display='block';
+  });
+}
+
+/* =========================================================
+   PARTILHAR RELATÓRIO (email / whatsapp)
+   ========================================================= */
+let shareVisitId = null;
+function openShareModal(visitId){
+  shareVisitId = visitId;
+  const v = visits.find(x=>x.id===visitId);
+  const s = schools.find(x=>x.id===v.escolaId);
+  const visitador = visitors.find(x=>x.id===v.visitadorId);
+  const text =
+`Relatório de visita — ${s ? s.nome : ''}
+Data/hora: ${formatDate(new Date(v.dataHora))}
+Visitador: ${visitador ? visitador.nome : '—'}
+Pessoa contactada: ${v.pessoaContactada || '—'}
+
+Assunto:
+${v.assunto || '—'}
+
+Ações / follow-up:
+${v.acoes || '—'}
+
+Anexos:
+${v.anexos || '—'}
+
+Observações:
+${v.observacoes || '—'}`;
+  document.getElementById('shareText').value = text;
+  document.getElementById('shareModalOverlay').style.display = 'flex';
+}
+function closeShareModal(){ document.getElementById('shareModalOverlay').style.display = 'none'; shareVisitId = null; }
+function shareViaEmail(){
+  const v = visits.find(x=>x.id===shareVisitId);
+  const s = schools.find(x=>x.id===v.escolaId);
+  const subject = encodeURIComponent('Relatório de visita — '+(s?s.nome:''));
+  const body = encodeURIComponent(document.getElementById('shareText').value);
+  window.location.href = `mailto:?subject=${subject}&body=${body}`;
+}
+function shareViaWhatsApp(){
+  const text = encodeURIComponent(document.getElementById('shareText').value);
+  window.open(`https://wa.me/?text=${text}`, '_blank');
+}
+
+/* =========================================================
+   ARRANQUE
+   ========================================================= */
+initFirebase();
+</script>
+</body>
+</html>
