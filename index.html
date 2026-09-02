@@ -284,9 +284,32 @@
           <h2>Mapa</h2>
           <p>Localização das escolas, coloridas pelo estado da última visita.</p>
         </div>
-        <button class="btn ghost" onclick="mostrarMinhaLocalizacao()">📍 A minha localização</button>
+        <div style="display:flex;gap:8px;">
+          <button class="btn ghost" onclick="mostrarMinhaLocalizacao()">📍 A minha localização</button>
+          <button class="btn ghost" id="routeModeBtn" onclick="toggleRouteMode()">🧭 Planear rota</button>
+        </div>
       </div>
       <div id="locErr" class="err" style="display:none;margin-bottom:10px;"></div>
+      <div id="routePanel" style="display:none;background:var(--paper-raised);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;margin-bottom:14px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
+          <strong style="font-size:14px;">Escolas selecionadas para a rota (<span id="routeCount">0</span>)</strong>
+          <div style="display:flex;gap:8px;">
+            <button class="btn ghost small" onclick="limparSelecaoRota()">Limpar seleção</button>
+            <button class="btn ochre small" onclick="iniciarNavegacaoRota()">🧭 Iniciar navegação GPS</button>
+          </div>
+        </div>
+        <div class="hint" style="margin-bottom:8px;">Marque as escolas na lista, pela ordem em que as quer visitar. Escolas sem coordenadas GPS não podem entrar na rota.</div>
+        <div style="display:flex;gap:16px;flex-wrap:wrap;">
+          <div style="flex:1;min-width:220px;">
+            <input class="search" style="margin-bottom:8px;width:100%;" id="routeSearch" placeholder="Pesquisar escola..." oninput="renderRouteCheckList()">
+            <div id="routeCheckList" style="max-height:260px;overflow-y:auto;border:1px solid var(--line);border-radius:var(--radius);padding:6px 10px;"></div>
+          </div>
+          <div style="flex:1;min-width:220px;">
+            <div class="hint" style="margin-bottom:8px;">Ordem da rota</div>
+            <div id="routeList" style="display:flex;flex-direction:column;gap:6px;"></div>
+          </div>
+        </div>
+      </div>
       <div id="map"></div>
     </div>
 
@@ -652,6 +675,7 @@ function attachListeners(){
     renderSchoolList();
     renderSchoolSelect();
     renderMap();
+    if(routeMode) renderRouteCheckList();
     if(currentSchoolId) renderDetail(currentSchoolId);
   });
   db.collection('visitors').onSnapshot(snap => {
@@ -784,13 +808,155 @@ function renderMap(){
     const marker = L.circleMarker([parseFloat(s.lat), parseFloat(s.lng)], {
       radius:9, fillColor: colorHex[status.code], color:'#fff', weight:2, fillOpacity:0.95
     }).addTo(leafletMap);
+    marker.schoolId = s.id;
+    marker.baseColor = colorHex[status.code];
     marker.bindPopup(`<strong>${escapeHTML(s.nome)}</strong><br>${escapeHTML(s.tipo)}<br>${status.label}`);
-    marker.on('click', ()=>{ switchView('detalhe'); renderDetail(s.id); });
+    marker.on('click', ()=>{
+      if(routeMode){ toggleSchoolSelection(s.id); }
+      else { switchView('detalhe'); renderDetail(s.id); }
+    });
     leafletMarkers.push(marker);
   });
-  if(withCoords.length>0){
+  if(withCoords.length>0 && !routeMode){
     const bounds = L.latLngBounds(withCoords.map(s=>[parseFloat(s.lat), parseFloat(s.lng)]));
     leafletMap.fitBounds(bounds.pad(0.2));
+  }
+  updateMarkerStyles();
+}
+
+/* ---- Planeamento de rota / navegação GPS ---- */
+let routeMode = false;
+let selectedForRoute = [];
+
+function toggleRouteMode(){
+  routeMode = !routeMode;
+  const btn = document.getElementById('routeModeBtn');
+  if(routeMode){
+    btn.classList.remove('ghost'); btn.classList.add('ochre');
+    btn.textContent = '✕ Sair da seleção';
+  } else {
+    btn.classList.remove('ochre'); btn.classList.add('ghost');
+    btn.textContent = '🧭 Planear rota';
+    selectedForRoute = [];
+  }
+  document.getElementById('routePanel').style.display = routeMode ? 'block' : 'none';
+  updateMarkerStyles();
+  renderRouteList();
+  renderRouteCheckList();
+}
+
+function toggleSchoolSelection(id){
+  const idx = selectedForRoute.indexOf(id);
+  if(idx >= 0) selectedForRoute.splice(idx, 1);
+  else selectedForRoute.push(id);
+  updateMarkerStyles();
+  renderRouteList();
+  renderRouteCheckList();
+}
+
+function removeFromRoute(id){
+  selectedForRoute = selectedForRoute.filter(x => x !== id);
+  updateMarkerStyles();
+  renderRouteList();
+  renderRouteCheckList();
+}
+
+function limparSelecaoRota(){
+  selectedForRoute = [];
+  updateMarkerStyles();
+  renderRouteList();
+  renderRouteCheckList();
+}
+
+function updateMarkerStyles(){
+  leafletMarkers.forEach(m=>{
+    if(!m.schoolId) return;
+    const selected = selectedForRoute.includes(m.schoolId);
+    if(selected){
+      m.setStyle({radius:12, color:'#B9922E', weight:4, fillColor:m.baseColor, fillOpacity:1});
+      m.bringToFront();
+    } else {
+      m.setStyle({radius:9, color:'#fff', weight:2, fillColor:m.baseColor, fillOpacity:0.95});
+    }
+  });
+}
+
+function renderRouteCheckList(){
+  const listEl = document.getElementById('routeCheckList');
+  if(!listEl) return;
+  const term = (document.getElementById('routeSearch')?.value || '').toLowerCase();
+  const sorted = schools.slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
+  const filtered = sorted.filter(s => !term || (s.nome||'').toLowerCase().includes(term));
+  if(filtered.length === 0){
+    listEl.innerHTML = '<div class="hint">Nenhuma escola encontrada.</div>';
+    return;
+  }
+  listEl.innerHTML = filtered.map(s=>{
+    const hasCoords = !!(s.lat && s.lng);
+    const checked = selectedForRoute.includes(s.id);
+    return `<label style="display:flex;align-items:center;gap:8px;padding:5px 2px;font-size:13px;${hasCoords ? '' : 'opacity:.45;'}">
+      <input type="checkbox" ${checked?'checked':''} ${hasCoords?'':'disabled'} onchange="toggleSchoolSelection('${s.id}')">
+      <span style="flex:1;">${escapeHTML(s.nome)}</span>
+      ${hasCoords ? '' : '<span class="hint" style="margin:0;">sem GPS</span>'}
+    </label>`;
+  }).join('');
+}
+
+function renderRouteList(){
+  const countEl = document.getElementById('routeCount');
+  const listEl = document.getElementById('routeList');
+  if(!countEl || !listEl) return;
+  countEl.textContent = selectedForRoute.length;
+  if(selectedForRoute.length === 0){
+    listEl.innerHTML = '<div class="hint">Ainda não selecionou nenhuma escola.</div>';
+    return;
+  }
+  listEl.innerHTML = selectedForRoute.map((id, idx)=>{
+    const s = schools.find(x=>x.id===id);
+    if(!s) return '';
+    return `<div style="display:flex;align-items:center;gap:8px;">
+      <span style="background:var(--chalk-dark);color:#fff;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0;">${idx+1}</span>
+      <span style="flex:1;font-size:13.5px;">${escapeHTML(s.nome)}</span>
+      <button class="btn ghost small" onclick="removeFromRoute('${id}')">✕</button>
+    </div>`;
+  }).join('');
+}
+
+function iniciarNavegacaoRota(){
+  const errEl = document.getElementById('locErr');
+  errEl.style.display = 'none';
+  const schoolsSel = selectedForRoute.map(id=>schools.find(s=>s.id===id)).filter(s=>s && s.lat && s.lng);
+  if(schoolsSel.length === 0){
+    errEl.textContent = 'Selecione pelo menos uma escola no mapa antes de iniciar a navegação.';
+    errEl.style.display = 'block';
+    return;
+  }
+  const destination = schoolsSel[schoolsSel.length - 1];
+  const waypoints = schoolsSel.slice(0, -1);
+  if(schoolsSel.length > 10){
+    errEl.textContent = 'O Google Maps só suporta até 10 paragens por rota — considere dividir em duas rotas.';
+    errEl.style.display = 'block';
+  }
+
+  function abrirRota(originStr){
+    const destStr = `${destination.lat},${destination.lng}`;
+    let url = `https://www.google.com/maps/dir/?api=1&destination=${destStr}&travelmode=driving`;
+    if(originStr) url += `&origin=${originStr}`;
+    if(waypoints.length > 0){
+      const wpStr = waypoints.map(s=>`${s.lat},${s.lng}`).join('|');
+      url += `&waypoints=${encodeURIComponent(wpStr)}`;
+    }
+    window.open(url, '_blank');
+  }
+
+  if(navigator.geolocation){
+    navigator.geolocation.getCurrentPosition(
+      pos => abrirRota(`${pos.coords.latitude},${pos.coords.longitude}`),
+      () => abrirRota(null),
+      { enableHighAccuracy:true, timeout:8000 }
+    );
+  } else {
+    abrirRota(null);
   }
 }
 
