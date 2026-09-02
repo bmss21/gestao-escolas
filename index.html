@@ -525,11 +525,24 @@ let visitFormSchoolId = null;
 let authMode = 'login'; // 'login' | 'signup'
 let leafletMap = null, leafletMarkers = [];
 
+/* Configuração fixa do projeto Firebase desta aplicação — não é secreta
+   (a segurança é garantida pelas regras do Firestore/Authentication),
+   por isso fica embutida no ficheiro e não precisa de ser colada em cada dispositivo. */
+const EMBEDDED_FIREBASE_CONFIG = {
+  apiKey: "AIzaSyD8ja065CA-K5nOwfCsrqWwnHUGGQyLMNA",
+  authDomain: "gestao-de-visitas-nas-escolas.firebaseapp.com",
+  projectId: "gestao-de-visitas-nas-escolas",
+  storageBucket: "gestao-de-visitas-nas-escolas.firebasestorage.app",
+  messagingSenderId: "913536776083",
+  appId: "1:913536776083:web:029f1236e9c1188bea5a66"
+};
+
 function getStoredConfig(){
   try{
     const raw = localStorage.getItem('escolas_firebaseConfig');
-    return raw ? JSON.parse(raw) : null;
-  }catch(e){ return null; }
+    if(raw) return JSON.parse(raw);
+  }catch(e){ /* ignora e usa a configuração embutida */ }
+  return EMBEDDED_FIREBASE_CONFIG;
 }
 
 function showConfigScreen(){
