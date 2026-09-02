@@ -257,7 +257,10 @@
           <h2>Escolas</h2>
           <p>Lista de escolas acompanhadas, com estado da última visita.</p>
         </div>
-        <button class="btn ochre" onclick="openSchoolModal()">+ Nova escola</button>
+        <div style="display:flex;gap:8px;">
+          <button class="btn ghost" onclick="openImportModal()">Importar lista</button>
+          <button class="btn ochre" onclick="openSchoolModal()">+ Nova escola</button>
+        </div>
       </div>
       <div class="toolbar">
         <input class="search" id="schoolSearch" placeholder="Pesquisar por nome ou morada..." oninput="renderSchoolList()">
@@ -463,6 +466,31 @@
     <div class="modal-actions">
       <button class="btn ghost" onclick="closeVisitorModal()">Cancelar</button>
       <button class="btn ochre" onclick="saveVisitor()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ MODAL: IMPORTAR LISTA DE ESCOLAS ============ -->
+<div class="overlay" id="importModalOverlay">
+  <div class="modal" style="max-width:680px;">
+    <h3>Importar lista de escolas</h3>
+    <p class="hint" style="margin-bottom:14px;">
+      Cole uma lista com uma escola por linha, separando os campos por ponto e vírgula ( ; ), nesta ordem:<br>
+      <strong>Nome; Tipo; Morada; Latitude; Longitude; Contacto geral; Nome do Diretor; Contacto do Diretor</strong><br>
+      Os campos Latitude, Longitude, Contacto e Diretor podem ficar em branco. O Tipo deve ser um destes: JI, EB, EB2, EB2,3, EBS, Escola Profissional, Politécnico, Universidade (se não reconhecido, fica como EB por defeito).
+    </p>
+    <div class="field">
+      <textarea id="importText" style="min-height:160px;font-family:monospace;font-size:12.5px;" placeholder="Escola Básica de Exemplo; EB; Rua Exemplo 123, Localidade; 40.83; -8.47; 256000000; João Silva; 912345678"></textarea>
+    </div>
+    <div id="importErr" class="err" style="display:none;"></div>
+    <div id="importPreview" style="display:none;margin-top:12px;">
+      <div class="section-title" style="margin:0 0 8px 0;font-size:14px;">Pré-visualização</div>
+      <div id="importPreviewList" style="max-height:220px;overflow-y:auto;"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeImportModal()">Cancelar</button>
+      <button class="btn ghost" onclick="previewImport()">Pré-visualizar</button>
+      <button class="btn ochre" id="confirmImportBtn" style="display:none;" onclick="confirmImport()">Importar escolas</button>
     </div>
   </div>
 </div>
@@ -890,6 +918,87 @@ function saveSchool(){
 function deleteSchool(id){
   if(!confirm('Eliminar esta escola? Esta ação não pode ser revertida.')) return;
   db.collection('schools').doc(id).delete().then(()=> switchView('escolas'));
+}
+
+/* =========================================================
+   IMPORTAR LISTA DE ESCOLAS
+   ========================================================= */
+let pendingImport = [];
+
+function openImportModal(){
+  document.getElementById('importText').value = '';
+  document.getElementById('importErr').style.display = 'none';
+  document.getElementById('importPreview').style.display = 'none';
+  document.getElementById('confirmImportBtn').style.display = 'none';
+  pendingImport = [];
+  document.getElementById('importModalOverlay').style.display = 'flex';
+}
+function closeImportModal(){ document.getElementById('importModalOverlay').style.display = 'none'; }
+
+function previewImport(){
+  const errEl = document.getElementById('importErr');
+  errEl.style.display = 'none';
+  const raw = document.getElementById('importText').value.trim();
+  if(!raw){ errEl.textContent = 'Cole a lista de escolas primeiro.'; errEl.style.display='block'; return; }
+
+  const lines = raw.split('\n').map(l=>l.trim()).filter(l=>l.length>0);
+  const parsed = [];
+  const tiposValidos = TIPOS;
+  lines.forEach(line=>{
+    const parts = line.split(';').map(p=>p.trim());
+    const nome = parts[0] || '';
+    if(!nome) return;
+    let tipo = parts[1] || 'EB';
+    if(!tiposValidos.includes(tipo)) tipo = 'EB';
+    parsed.push({
+      nome,
+      tipo,
+      morada: parts[2] || '',
+      lat: parts[3] || '',
+      lng: parts[4] || '',
+      contactoGeral: parts[5] || '',
+      diretorNome: parts[6] || '',
+      diretorContacto: parts[7] || '',
+    });
+  });
+
+  if(parsed.length===0){
+    errEl.textContent = 'Não foi possível interpretar nenhuma linha válida.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  pendingImport = parsed;
+  const previewEl = document.getElementById('importPreviewList');
+  previewEl.innerHTML = parsed.map(s=>`
+    <div class="visit-item">
+      <div class="vtop"><span>${escapeHTML(s.nome)}</span><span>${escapeHTML(s.tipo)}</span></div>
+      <div class="vmeta">${escapeHTML(s.morada || 'sem morada')}</div>
+    </div>
+  `).join('');
+  document.getElementById('importPreview').style.display = 'block';
+  document.getElementById('confirmImportBtn').style.display = 'inline-block';
+  document.getElementById('confirmImportBtn').textContent = `Importar ${parsed.length} escola(s)`;
+}
+
+function confirmImport(){
+  if(pendingImport.length===0) return;
+  const btn = document.getElementById('confirmImportBtn');
+  btn.disabled = true;
+  btn.textContent = 'A importar...';
+  const batch = db.batch();
+  pendingImport.forEach(s=>{
+    const ref = db.collection('schools').doc();
+    batch.set(ref, {...s, createdAt: new Date().toISOString()});
+  });
+  batch.commit().then(()=>{
+    closeImportModal();
+  }).catch(e=>{
+    document.getElementById('importErr').textContent = 'Erro ao importar: '+e.message;
+    document.getElementById('importErr').style.display = 'block';
+    btn.disabled = false;
+    btn.textContent = `Importar ${pendingImport.length} escola(s)`;
+  });
 }
 
 /* =========================================================
