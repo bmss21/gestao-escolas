@@ -284,7 +284,9 @@
           <h2>Mapa</h2>
           <p>Localização das escolas, coloridas pelo estado da última visita.</p>
         </div>
+        <button class="btn ghost" onclick="mostrarMinhaLocalizacao()">📍 A minha localização</button>
       </div>
+      <div id="locErr" class="err" style="display:none;margin-bottom:10px;"></div>
       <div id="map"></div>
     </div>
 
@@ -777,6 +779,39 @@ function renderMap(){
     const bounds = L.latLngBounds(withCoords.map(s=>[parseFloat(s.lat), parseFloat(s.lng)]));
     leafletMap.fitBounds(bounds.pad(0.2));
   }
+}
+
+/* ---- A minha localização ---- */
+let myLocationMarker = null;
+
+function mostrarMinhaLocalizacao(){
+  const errEl = document.getElementById('locErr');
+  errEl.style.display = 'none';
+  if(!navigator.geolocation){
+    errEl.textContent = 'Este dispositivo/navegador não suporta localização.';
+    errEl.style.display = 'block';
+    return;
+  }
+  if(!leafletMap){ renderMap(); }
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      const lat = pos.coords.latitude;
+      const lng = pos.coords.longitude;
+      if(myLocationMarker) leafletMap.removeLayer(myLocationMarker);
+      myLocationMarker = L.circleMarker([lat, lng], {
+        radius:9, fillColor:'#2E7DD1', color:'#fff', weight:3, fillOpacity:0.95
+      }).addTo(leafletMap);
+      myLocationMarker.bindPopup('A minha localização').openPopup();
+      leafletMap.setView([lat, lng], 14);
+    },
+    err => {
+      let msg = 'Não foi possível obter a sua localização.';
+      if(err.code === err.PERMISSION_DENIED) msg = 'Permissão de localização negada. Ative-a nas definições do navegador para usar esta função.';
+      errEl.textContent = msg;
+      errEl.style.display = 'block';
+    },
+    { enableHighAccuracy:true, timeout:10000 }
+  );
 }
 
 /* =========================================================
