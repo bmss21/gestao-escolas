@@ -13,14 +13,14 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <style>
   :root{
-    --chalk-dark:#24423B;
-    --chalk-darker:#172C27;
+    --chalk-dark:#122A4E;
+    --chalk-darker:#0B1D38;
     --paper:#F1EEE3;
     --paper-raised:#FBFAF4;
     --ink:#20241F;
     --ink-soft:#5B6158;
-    --ochre:#B5811F;
-    --ochre-deep:#8F6316;
+    --ochre:#B9922E;
+    --ochre-deep:#93741F;
     --green:#3F8F5F;
     --green-bg:#E4F1E8;
     --yellow:#B9871E;
@@ -241,7 +241,7 @@
     <div class="navitem active" data-view="escolas" onclick="switchView('escolas')">🏫 Escolas</div>
     <div class="navitem" data-view="mapa" onclick="switchView('mapa')">🗺️ Mapa</div>
     <div class="navitem" data-view="visita" onclick="switchView('visita')">📝 Nova visita</div>
-    <div class="navitem" data-view="visitadores" onclick="switchView('visitadores')">👤 Visitadores</div>
+    <div class="navitem" data-view="visitadores" onclick="switchView('visitadores')">🎖️ Militares do SPC</div>
     <div class="sidebar-foot">
       <div class="user-email" id="userEmailLabel"></div>
       <button class="link-btn" onclick="doLogout()">Terminar sessão</button>
@@ -334,7 +334,7 @@
             <input type="datetime-local" id="visitDataHora">
           </div>
           <div class="field">
-            <label>Visitador</label>
+            <label>Militar do SPC</label>
             <select id="visitVisitador"></select>
           </div>
         </div>
@@ -369,10 +369,10 @@
     <div id="view-visitadores" style="display:none;">
       <div class="content-header">
         <div>
-          <h2>Visitadores</h2>
-          <p>Lista de pessoas responsáveis pelas visitas às escolas.</p>
+          <h2>Militares do SPC</h2>
+          <p>Lista de militares do SPC responsáveis pelas visitas às escolas.</p>
         </div>
-        <button class="btn ochre" onclick="openVisitorModal()">+ Novo visitador</button>
+        <button class="btn ochre" onclick="openVisitorModal()">+ Novo militar</button>
       </div>
       <div class="card-list" id="visitorList"></div>
     </div>
@@ -444,10 +444,10 @@
   </div>
 </div>
 
-<!-- ============ MODAL: VISITADOR ============ -->
+<!-- ============ MODAL: MILITAR DO SPC ============ -->
 <div class="overlay" id="visitorModalOverlay">
   <div class="modal">
-    <h3>Novo visitador</h3>
+    <h3 id="visitorModalTitle">Novo militar do SPC</h3>
     <div class="field">
       <label>Nome</label>
       <input type="text" id="vNome">
@@ -1007,7 +1007,7 @@ function confirmImport(){
 function renderVisitorList(){
   const list = document.getElementById('visitorList');
   if(visitors.length===0){
-    list.innerHTML = `<div class="empty"><h3>Ainda sem visitadores</h3>Adicione as pessoas responsáveis pelas visitas.</div>`;
+    list.innerHTML = `<div class="empty"><h3>Ainda sem militares registados</h3>Adicione os militares do SPC responsáveis pelas visitas.</div>`;
     return;
   }
   const sorted = visitors.slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
@@ -1017,14 +1017,28 @@ function renderVisitorList(){
         <h3>${escapeHTML(v.nome)}</h3>
         <div class="meta">Nº mecanográfico: ${escapeHTML(v.numero||'—')} · Posto: ${escapeHTML(v.posto||'—')}</div>
       </div>
-      <button class="btn ghost small" onclick="deleteVisitor('${v.id}')">Eliminar</button>
+      <div style="display:flex;gap:8px;">
+        <button class="btn ghost small" onclick="openVisitorModal('${v.id}')">Editar</button>
+        <button class="btn danger small" onclick="deleteVisitor('${v.id}')">Eliminar</button>
+      </div>
     </div>
   `).join('');
 }
 
-function openVisitorModal(){
+let editingVisitorId = null;
+
+function openVisitorModal(id){
+  editingVisitorId = id || null;
   document.getElementById('visitorErr').style.display='none';
-  ['vNome','vNumero','vPosto'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('visitorModalTitle').textContent = id ? 'Editar militar do SPC' : 'Novo militar do SPC';
+  if(id){
+    const v = visitors.find(x=>x.id===id);
+    document.getElementById('vNome').value = v.nome || '';
+    document.getElementById('vNumero').value = v.numero || '';
+    document.getElementById('vPosto').value = v.posto || '';
+  } else {
+    ['vNome','vNumero','vPosto'].forEach(id=>document.getElementById(id).value='');
+  }
   document.getElementById('visitorModalOverlay').style.display = 'flex';
 }
 function closeVisitorModal(){ document.getElementById('visitorModalOverlay').style.display = 'none'; }
@@ -1032,16 +1046,20 @@ function saveVisitor(){
   const nome = document.getElementById('vNome').value.trim();
   const errEl = document.getElementById('visitorErr');
   if(!nome){ errEl.textContent='O nome é obrigatório.'; errEl.style.display='block'; return; }
-  db.collection('visitors').add({
+  const data = {
     nome,
     numero: document.getElementById('vNumero').value.trim(),
     posto: document.getElementById('vPosto').value.trim(),
-  }).then(()=> closeVisitorModal()).catch(e=>{
+  };
+  const promise = editingVisitorId
+    ? db.collection('visitors').doc(editingVisitorId).update(data)
+    : db.collection('visitors').add(data);
+  promise.then(()=> closeVisitorModal()).catch(e=>{
     errEl.textContent='Erro ao guardar: '+e.message; errEl.style.display='block';
   });
 }
 function deleteVisitor(id){
-  if(!confirm('Eliminar este visitador?')) return;
+  if(!confirm('Eliminar este militar?')) return;
   db.collection('visitors').doc(id).delete();
 }
 
@@ -1122,7 +1140,7 @@ function openShareModal(visitId){
   const text =
 `Relatório de visita — ${s ? s.nome : ''}
 Data/hora: ${formatDate(new Date(v.dataHora))}
-Visitador: ${visitador ? visitador.nome : '—'}
+Militar do SPC: ${visitador ? visitador.nome : '—'}
 Pessoa contactada: ${v.pessoaContactada || '—'}
 
 Assunto:
