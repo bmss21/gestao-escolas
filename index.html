@@ -62,7 +62,7 @@
   .navitem:hover{background:rgba(255,255,255,.06);}
   .navitem.active{background:rgba(255,255,255,.09);border-left-color:var(--ochre);color:#fff;font-weight:600;}
   .navitem svg{width:16px;height:16px;flex-shrink:0;}
-  .sidebar-foot{margin-top:auto;padding:14px 22px 0 22px;border-top:1px solid rgba(255,255,255,.12);}
+  .sidebar-foot{margin-top:auto;padding:14px 22px 0 22px;border-top:1px solid rgba(255,255,255,.12);display:flex;flex-direction:column;}
   .sidebar-foot .user-email{font-size:12px;color:#B9C6BF;word-break:break-all;margin-bottom:8px;}
   .link-btn{background:none;border:none;color:#D7DED8;font-size:13px;padding:0;text-decoration:underline;}
 
@@ -182,7 +182,11 @@
     .brand{display:none;}
     .navitem{border-left:none;border-bottom:3px solid transparent;white-space:nowrap;padding:8px 12px;}
     .navitem.active{border-left:none;border-bottom-color:var(--ochre);}
-    .sidebar-foot{display:none;}
+    .sidebar-foot{
+      display:flex;flex-direction:row;align-items:center;margin:0 0 0 8px;
+      padding:0 8px;border-top:none;flex-shrink:0;
+    }
+    .sidebar-foot .user-email{display:none;}
     .content{padding:20px;}
     .detail-grid{grid-template-columns:1fr;}
     .field-row{flex-direction:column;gap:0;}
@@ -398,6 +402,12 @@
     <div class="field">
       <label>Morada</label>
       <input type="text" id="fMorada">
+      <button type="button" class="btn ghost small" style="margin-top:7px;" onclick="verificarMoradaNoMapa()">📍 Verificar morada no mapa</button>
+      <div class="hint" id="geocodeStatus"></div>
+    </div>
+    <div id="miniMapWrap" style="display:none;margin-bottom:13px;">
+      <div id="miniMap" style="height:200px;border-radius:6px;border:1px solid var(--line);"></div>
+      <div class="hint">Arraste o marcador para afinar a localização exata.</div>
     </div>
     <div class="field-row">
       <div class="field">
@@ -786,6 +796,8 @@ function renderDetail(id){
 function openSchoolModal(id){
   editingSchoolId = id || null;
   document.getElementById('schoolErr').style.display = 'none';
+  document.getElementById('geocodeStatus').textContent = '';
+  document.getElementById('miniMapWrap').style.display = 'none';
   document.getElementById('schoolModalTitle').textContent = id ? 'Editar escola' : 'Nova escola';
   if(id){
     const s = schools.find(x=>x.id===id);
@@ -797,6 +809,9 @@ function openSchoolModal(id){
     document.getElementById('fContacto').value = s.contactoGeral || '';
     document.getElementById('fDiretorNome').value = s.diretorNome || '';
     document.getElementById('fDiretorContacto').value = s.diretorContacto || '';
+    if(s.lat && s.lng){
+      setTimeout(()=> showMiniMap(parseFloat(s.lat), parseFloat(s.lng)), 120);
+    }
   } else {
     ['fNome','fMorada','fLat','fLng','fContacto','fDiretorNome','fDiretorContacto'].forEach(id=>document.getElementById(id).value='');
     document.getElementById('fTipo').value = 'EB';
@@ -804,6 +819,51 @@ function openSchoolModal(id){
   document.getElementById('schoolModalOverlay').style.display = 'flex';
 }
 function closeSchoolModal(){ document.getElementById('schoolModalOverlay').style.display = 'none'; }
+
+/* ---- Geocodificação da morada (Nominatim / OpenStreetMap) ---- */
+let miniMap = null, miniMarker = null;
+
+function verificarMoradaNoMapa(){
+  const morada = document.getElementById('fMorada').value.trim();
+  const statusEl = document.getElementById('geocodeStatus');
+  if(!morada){ statusEl.textContent = 'Escreva primeiro a morada.'; return; }
+  statusEl.textContent = 'A localizar...';
+  fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(morada))
+    .then(r => r.json())
+    .then(results => {
+      if(!results || results.length === 0){
+        statusEl.textContent = 'Não foi possível localizar esta morada. Pode preencher as coordenadas manualmente.';
+        return;
+      }
+      const lat = parseFloat(results[0].lat);
+      const lon = parseFloat(results[0].lon);
+      statusEl.textContent = 'Localização encontrada — pode arrastar o marcador para afinar.';
+      showMiniMap(lat, lon);
+      document.getElementById('fLat').value = lat.toFixed(6);
+      document.getElementById('fLng').value = lon.toFixed(6);
+    })
+    .catch(()=>{ statusEl.textContent = 'Erro ao contactar o serviço de localização. Tente novamente.'; });
+}
+
+function showMiniMap(lat, lon){
+  document.getElementById('miniMapWrap').style.display = 'block';
+  if(!miniMap){
+    miniMap = L.map('miniMap').setView([lat, lon], 16);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+      attribution:'&copy; OpenStreetMap contributors'
+    }).addTo(miniMap);
+    miniMarker = L.marker([lat, lon], {draggable:true}).addTo(miniMap);
+    miniMarker.on('dragend', ()=>{
+      const pos = miniMarker.getLatLng();
+      document.getElementById('fLat').value = pos.lat.toFixed(6);
+      document.getElementById('fLng').value = pos.lng.toFixed(6);
+    });
+  } else {
+    miniMap.setView([lat, lon], 16);
+    miniMarker.setLatLng([lat, lon]);
+  }
+  setTimeout(()=>{ if(miniMap) miniMap.invalidateSize(); }, 100);
+}
 
 function saveSchool(){
   const nome = document.getElementById('fNome').value.trim();
