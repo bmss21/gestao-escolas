@@ -685,6 +685,8 @@ function attachListeners(){
   });
   db.collection('visits').orderBy('dataHora','desc').onSnapshot(snap => {
     visits = snap.docs.map(d => ({id:d.id, ...d.data()}));
+    renderSchoolList();
+    renderMap();
     if(currentSchoolId) renderDetail(currentSchoolId);
   });
 }
