@@ -170,6 +170,7 @@
   .auth-card .sub{color:var(--ink-soft);font-size:13.5px;margin-bottom:22px;}
   .auth-card .field{margin-bottom:14px;}
   .auth-card .btn{width:100%;padding:11px;font-size:14px;margin-top:6px;}
+  body:not(.papel-admin) .so-admin{display:none !important;}
   .switch-mode{text-align:center;font-size:13px;margin-top:16px;color:var(--ink-soft);}
   .switch-mode a{color:var(--ochre-deep);font-weight:600;cursor:pointer;text-decoration:underline;}
 
@@ -198,15 +199,9 @@
 <!-- ============ ECRÃ DE CONFIGURAÇÃO FIREBASE ============ -->
 <div id="configScreen" class="center-screen">
   <div class="auth-card config-box">
-    <h1>Configurar Firebase</h1>
-    <p class="sub">Cole aqui o <code>firebaseConfig</code> do seu projeto Firebase (Consola Firebase → Definições do projeto → As suas apps). É guardado apenas neste dispositivo/navegador.</p>
-    <div class="field">
-      <label>Firebase config (objeto JavaScript ou JSON)</label>
-      <textarea id="firebaseConfigInput" placeholder='{ "apiKey": "...", "authDomain": "...", "projectId": "...", ... }'></textarea>
-    </div>
+    <h1>Erro ao iniciar</h1>
+    <p class="sub">Não foi possível ligar à base de dados. Verifique a ligação à internet e recarregue a página. Se o problema continuar, contacte o administrador.</p>
     <div id="configErr" class="err" style="display:none;"></div>
-    <button class="btn ochre" style="width:100%;padding:11px;" onclick="saveFirebaseConfig()">Guardar e continuar</button>
-    <p class="hint">Certifique-se de que ativou <strong>Authentication</strong> (Email/Password) e <strong>Firestore Database</strong> nesse projeto.</p>
   </div>
 </div>
 
@@ -225,8 +220,7 @@
     </div>
     <div id="loginErr" class="err" style="display:none;"></div>
     <button class="btn ochre" onclick="doLogin()">Entrar</button>
-    <div class="switch-mode">Sem conta? <a onclick="toggleAuthMode()">Criar conta</a></div>
-    <div class="switch-mode"><a onclick="showConfigScreen()">Alterar configuração Firebase</a></div>
+    <div class="switch-mode">Sem conta? Peça acesso ao administrador.</div>
   </div>
 </div>
 
@@ -324,7 +318,7 @@
         <div style="display:flex;gap:8px;">
           <span id="detBadge"></span>
           <button class="btn ghost small" onclick="openSchoolModal(currentSchoolId)">Editar</button>
-          <button class="btn danger small" onclick="deleteSchool(currentSchoolId)">Eliminar</button>
+          <button class="btn danger small so-admin" onclick="deleteSchool(currentSchoolId)">Eliminar</button>
         </div>
       </div>
       <div class="detail-grid">
@@ -541,6 +535,8 @@
    ========================================================= */
 let firebaseApp, auth, db;
 let currentUser = null;
+let currentPapel = null; // 'admin' | 'militar' (documento autorizados/{uid})
+let unsubscribers = [];
 let schools = [], visitors = [], visits = [];
 let currentSchoolId = null;
 let editingSchoolId = null;
@@ -561,10 +557,9 @@ const EMBEDDED_FIREBASE_CONFIG = {
 };
 
 function getStoredConfig(){
-  try{
-    const raw = localStorage.getItem('escolas_firebaseConfig');
-    if(raw) return JSON.parse(raw);
-  }catch(e){ /* ignora e usa a configuração embutida */ }
+  // A configuração é sempre a embutida. Uma configuração guardada antes neste
+  // navegador (versões antigas) é apagada, para não poder apontar para outro projeto.
+  try{ localStorage.removeItem('escolas_firebaseConfig'); }catch(e){}
   return EMBEDDED_FIREBASE_CONFIG;
 }
 
@@ -574,27 +569,7 @@ function showConfigScreen(){
   document.getElementById('app').style.display = 'none';
 }
 
-function saveFirebaseConfig(){
-  const raw = document.getElementById('firebaseConfigInput').value.trim();
-  const errEl = document.getElementById('configErr');
-  errEl.style.display = 'none';
-  let parsed;
-  try{
-    // aceita tanto JSON válido como objeto JS (com aspas simples, chaves sem aspas, etc.)
-    parsed = Function('"use strict"; return (' + raw + ')')();
-  }catch(e){
-    errEl.textContent = 'Não foi possível interpretar o config. Cole exatamente o objeto firebaseConfig fornecido pela consola Firebase.';
-    errEl.style.display = 'block';
-    return;
-  }
-  if(!parsed || !parsed.apiKey || !parsed.projectId){
-    errEl.textContent = 'O config parece incompleto — falta apiKey ou projectId.';
-    errEl.style.display = 'block';
-    return;
-  }
-  localStorage.setItem('escolas_firebaseConfig', JSON.stringify(parsed));
-  initFirebase();
-}
+function saveFirebaseConfig(){ /* desativado: a configuração já não pode ser colada */ }
 
 function initFirebase(){
   const cfg = getStoredConfig();
@@ -613,12 +588,12 @@ function initFirebase(){
   auth.onAuthStateChanged(user => {
     if(user){
       currentUser = user;
-      document.getElementById('loginScreen').style.display = 'none';
-      document.getElementById('app').style.display = 'block';
-      document.getElementById('userEmailLabel').textContent = user.email;
-      attachListeners();
+      verificarAutorizacao(user);
     } else {
       currentUser = null;
+      currentPapel = null;
+      detachListeners();
+      document.body.classList.remove('papel-admin');
       document.getElementById('app').style.display = 'none';
       document.getElementById('loginScreen').style.display = 'flex';
     }
@@ -643,9 +618,7 @@ function doLogin(){
   const errEl = document.getElementById('loginErr');
   errEl.style.display = 'none';
   if(!email || !pass){ errEl.textContent = 'Preencha e-mail e palavra-passe.'; errEl.style.display='block'; return; }
-  const action = authMode === 'login'
-    ? auth.signInWithEmailAndPassword(email, pass)
-    : auth.createUserWithEmailAndPassword(email, pass);
+  const action = auth.signInWithEmailAndPassword(email, pass);
   action.catch(e => {
     errEl.textContent = traduzErro(e.code) || e.message;
     errEl.style.display = 'block';
@@ -666,29 +639,68 @@ function traduzErro(code){
 
 function doLogout(){ auth.signOut(); }
 
+/* Só entra quem tiver autorizados/{uid} com papel 'admin' ou 'militar'
+   (criado pelo administrador na consola Firebase). */
+function mostrarSemAutorizacao(user, motivo){
+  const errEl = document.getElementById('loginErr');
+  errEl.innerHTML = (motivo === 'erro'
+      ? 'Não foi possível confirmar o acesso desta conta. Verifique a ligação e tente outra vez.'
+      : 'Esta conta ainda não está autorizada. Peça ao administrador para a autorizar, indicando:')
+    + '<br><strong>E-mail:</strong> ' + escapeHTML(user.email || '—')
+    + '<br><strong>Código (UID):</strong> <span style="word-break:break-all;">' + escapeHTML(user.uid) + '</span>';
+  errEl.style.display = 'block';
+  auth.signOut();
+}
+function verificarAutorizacao(user){
+  db.collection('autorizados').doc(user.uid).get().then(snap => {
+    const d = snap.exists ? snap.data() : null;
+    if(!d || d.ativo === false || !['admin','militar'].includes(d.papel)){ mostrarSemAutorizacao(user, 'nao-autorizado'); return; }
+    currentPapel = d.papel;
+    document.body.classList.toggle('papel-admin', d.papel === 'admin');
+    document.getElementById('loginErr').style.display = 'none';
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+    document.getElementById('userEmailLabel').textContent = user.email + ' · ' + (d.papel === 'admin' ? 'Administrador' : 'Militar');
+    attachListeners();
+  }).catch(err => {
+    mostrarSemAutorizacao(user, err.code === 'permission-denied' ? 'nao-autorizado' : 'erro');
+  });
+}
+function detachListeners(){
+  unsubscribers.forEach(u => { try{ u(); }catch(e){} });
+  unsubscribers = [];
+}
+function erroLeitura(nome){
+  return err => {
+    if(err.code === 'permission-denied' && currentUser){ detachListeners(); mostrarSemAutorizacao(currentUser, 'nao-autorizado'); return; }
+    alert('Erro a ler ' + nome + ': ' + err.message);
+  };
+}
+
 /* =========================================================
    LISTENERS FIRESTORE
    ========================================================= */
 function attachListeners(){
-  db.collection('schools').onSnapshot(snap => {
+  detachListeners();
+  unsubscribers.push(db.collection('schools').onSnapshot(snap => {
     schools = snap.docs.map(d => ({id:d.id, ...d.data()}));
     renderSchoolList();
     renderSchoolSelect();
     renderMap();
     if(routeMode) renderRouteCheckList();
     if(currentSchoolId) renderDetail(currentSchoolId);
-  });
-  db.collection('visitors').onSnapshot(snap => {
+  }, erroLeitura('escolas')));
+  unsubscribers.push(db.collection('visitors').onSnapshot(snap => {
     visitors = snap.docs.map(d => ({id:d.id, ...d.data()}));
     renderVisitorList();
     renderVisitorSelect();
-  });
-  db.collection('visits').orderBy('dataHora','desc').onSnapshot(snap => {
+  }, erroLeitura('militares')));
+  unsubscribers.push(db.collection('visits').orderBy('dataHora','desc').onSnapshot(snap => {
     visits = snap.docs.map(d => ({id:d.id, ...d.data()}));
     renderSchoolList();
     renderMap();
     if(currentSchoolId) renderDetail(currentSchoolId);
-  });
+  }, erroLeitura('visitas')));
 }
 
 /* =========================================================
@@ -1132,6 +1144,7 @@ function saveSchool(){
 }
 
 function deleteSchool(id){
+  if(currentPapel !== 'admin'){ alert('Só o administrador pode eliminar escolas.'); return; }
   if(!confirm('Eliminar esta escola? Esta ação não pode ser revertida.')) return;
   db.collection('schools').doc(id).delete().then(()=> switchView('escolas'));
 }
@@ -1235,7 +1248,7 @@ function renderVisitorList(){
       </div>
       <div style="display:flex;gap:8px;">
         <button class="btn ghost small" onclick="openVisitorModal('${v.id}')">Editar</button>
-        <button class="btn danger small" onclick="deleteVisitor('${v.id}')">Eliminar</button>
+        <button class="btn danger small so-admin" onclick="deleteVisitor('${v.id}')">Eliminar</button>
       </div>
     </div>
   `).join('');
@@ -1275,6 +1288,7 @@ function saveVisitor(){
   });
 }
 function deleteVisitor(id){
+  if(currentPapel !== 'admin'){ alert('Só o administrador pode eliminar militares.'); return; }
   if(!confirm('Eliminar este militar?')) return;
   db.collection('visitors').doc(id).delete();
 }
@@ -1332,6 +1346,7 @@ function submitVisit(){
     anexos: document.getElementById('visitAnexos').value.trim(),
     observacoes: document.getElementById('visitObservacoes').value.trim(),
     createdAt: new Date().toISOString(),
+    criadoPor: currentUser ? currentUser.uid : null,
   };
 
   db.collection('visits').add(data).then(()=>{
